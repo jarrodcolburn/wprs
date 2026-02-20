@@ -20,6 +20,7 @@ use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 
 use smithay::reexports::calloop::channel;
+use tracing::error;
 
 pub trait Sender: Clone {
     type T;
@@ -130,7 +131,9 @@ where
     /// # Panics
     /// If the receiver has actually been dropped, despite the promise to the contrary.
     pub fn send(&self, t: S::T) {
-        self.0.send(t).unwrap();
+        if let Err(e) = self.0.send(t) {
+            error!("InfallibleSender failed to send: {e:?}");
+        }
     }
 
     pub fn into_inner(self) -> S {

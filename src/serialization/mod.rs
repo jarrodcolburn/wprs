@@ -357,7 +357,13 @@ where
     ST::Archived: Deserialize<ST, HighDeserializer<RancorError>>
         + for<'a> bytecheck::CheckBytes<HighValidator<'a, RancorError>>,
 {
-    let (_, wmem_max) = socket_buffer_limits().location(loc!())?;
+    let wmem_max = match socket_buffer_limits() {
+        Ok((_, w)) => w,
+        Err(e) => {
+            warn!("Failed to get socket buffer limits, using default 16KB: {:?}", e);
+            16 * 1024
+        }
+    };
     let mut stream = BufWriter::with_capacity(
         wmem_max, // match the socket's buffer size
         stream,
@@ -465,11 +471,22 @@ where
         + for<'a> bytecheck::CheckBytes<HighValidator<'a, RancorError>>,
 {
     let read_stream = stream.try_clone().location(loc!())?;
-    let read_thread = scope.spawn(move || read_loop(read_stream, read_channel_tx));
+    let read_thread = scope.spawn(move || {
+        let res = read_loop(read_stream, read_channel_tx);
+        if let Err(e) = &res {
+            error!("read_loop failed: {e:?}");
+        }
+        res
+    });
 
     let write_stream = stream.try_clone().location(loc!())?;
-    let write_thread =
-        scope.spawn(move || write_loop(write_stream, write_channel_rx, other_end_connected));
+    let write_thread = scope.spawn(move || {
+        let res = write_loop(write_stream, write_channel_rx, other_end_connected);
+        if let Err(e) = &res {
+            error!("write_loop failed: {e:?}");
+        }
+        res
+    });
 
     Ok((read_thread, write_thread))
 }
